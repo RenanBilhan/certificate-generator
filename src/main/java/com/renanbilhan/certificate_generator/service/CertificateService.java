@@ -20,6 +20,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.*;
 import java.util.HashMap;
@@ -37,7 +39,7 @@ public class CertificateService {
     public static final String DOWNLOADDIRECTORY = "C:\\estudo\\jasper-report\\";
 
 
-    public Flux<String> generateCertificate(FilePart file) throws IOException {
+    public Flux<Mono<String>> generateCertificate(FilePart file) throws IOException {
 
         System.out.println("abc");
         return file.content()
@@ -45,41 +47,37 @@ public class CertificateService {
                     try (Workbook workbook = new XSSFWorkbook(dataBuffer.asInputStream())) {
                         Sheet sheet = workbook.getSheetAt(0);
                         sheet.removeRow(sheet.getRow(0));
+                        String pathAbsoluto = getAbsolutePath();
 
-                        for (Row row : sheet) {
+                        return Flux.fromIterable(sheet).flatMap(row -> {
                             Map<String, Object> params = new HashMap<>();
                             params.put("name", row.getCell(0).toString());
                             params.put("workload", row.getCell(1).toString());
                             params.put("course", row.getCell(2).toString());
-
-                            String pathAbsoluto = getAbsolutePath();
-                            try{
+                            return Mono.fromCallable(() ->{
                                 String folderDirectory = createDirectory(row.getCell(0).toString());
                                 JasperReport report = JasperCompileManager.compileReport(pathAbsoluto);
-                                LOGGER.info("Report compilado");
+                                LOGGER.info("Report compilado para {}", row.getCell(0));
                                 JasperPrint print = JasperFillManager.fillReport(report, params, new JREmptyDataSource());
-                                LOGGER.info("Jasper print");
+                                LOGGER.info("Jasper print para {}", row.getCell(0));
                                 JasperExportManager.exportReportToPdfFile(print, folderDirectory);
-                            } catch (JRException e) {
-                                throw new RuntimeException(e);
-                            }
-                            Certificate certificate = new Certificate();
-                            certificate.setName(row.getCell(0).toString());
-                            certificate.setWorkload(row.getCell(1).toString());
-                            certificate.setCourse(row.getCell(2).toString());
-
-                            System.out.println(certificate.getName());
-                            System.out.println(certificate.getWorkload().toString());
-                            System.out.println(certificate.getCourse());
-                        }
-                        return Mono.just("Arquivo processado!");
+                                return Mono.just("Arquivo exportado para " + row.getCell(0));
+                            }).onErrorResume(e -> {
+                                        log.error("certificado não encontrado");
+                                        return Mono.error(new FileNotFoundException("Certificado não encontrado"));
+                            }).subscribeOn(Schedulers.parallel());
+                            
+                        }).onErrorResume(e -> {
+                            log.error("Erro reative", e);
+                            return Mono.error( new RuntimeException("Erro reativo"));
+                                });
                     } catch (IOException e) {
                         return Mono.error(e);
                     }
                 })
                 .onErrorResume(e -> {
                     log.error("Erro ao processar o arquivo", e);
-                    return Mono.just("Erro ao processar o arquivo: " + e.getMessage());
+                    return Flux.error(new RuntimeException("Erro ao processar o arquivo: " + e.getMessage()));
                 })
                 .doFinally(signalType -> {
                     log.info("Finalizando processamento do arquivo");
