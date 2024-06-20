@@ -1,26 +1,21 @@
 package com.renanbilhan.certificate_generator.service;
 
-import com.renanbilhan.certificate_generator.model.Certificate;
-import jakarta.annotation.Resource;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.jasperreports.engine.*;
-import org.apache.poi.ss.formula.functions.Rows;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
+import org.apache.commons.compress.utils.IOUtils;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ResourceUtils;
-import org.springframework.util.StringUtils;
-import org.springframework.web.multipart.MultipartFile;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.*;
@@ -29,19 +24,17 @@ import java.util.Map;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class CertificateService {
-    public static final String CERTIFICATES =  "classpath:template/certificate/";
 
+    private final ResourceLoader resourceLoader;
+    public static final String CERTIFICATES = "classpath:templates/";
     public static final String JRXMLFILE = "certificate.jrxml";
+    public static final String DOWNLOADDIRECTORY = "downloaded_certificates/";
 
-    public static final Logger LOGGER = LoggerFactory.getLogger(CertificateService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(CertificateService.class);
 
-    public static final String DOWNLOADDIRECTORY = "C:\\estudo\\jasper-report\\";
-
-
-    public Flux<Mono<String>> generateCertificate(FilePart file) throws IOException {
-
-        System.out.println("abc");
+    public Flux<String> generateCertificate(FilePart file) {
         return file.content()
                 .flatMap(dataBuffer -> {
                     try (Workbook workbook = new XSSFWorkbook(dataBuffer.asInputStream())) {
@@ -49,30 +42,30 @@ public class CertificateService {
                         sheet.removeRow(sheet.getRow(0));
                         String pathAbsoluto = getAbsolutePath();
 
-                        return Flux.fromIterable(sheet).flatMap(row -> {
-                            Map<String, Object> params = new HashMap<>();
-                            params.put("name", row.getCell(0).toString());
-                            params.put("workload", row.getCell(1).toString());
-                            params.put("course", row.getCell(2).toString());
-                            return Mono.fromCallable(() ->{
-                                String folderDirectory = createDirectory(row.getCell(0).toString());
-                                JasperReport report = JasperCompileManager.compileReport(pathAbsoluto);
-                                LOGGER.info("Report compilado para {}", row.getCell(0));
-                                JasperPrint print = JasperFillManager.fillReport(report, params, new JREmptyDataSource());
-                                LOGGER.info("Jasper print para {}", row.getCell(0));
-                                JasperExportManager.exportReportToPdfFile(print, folderDirectory);
-                                return Mono.just("Arquivo exportado para " + row.getCell(0));
-                            }).onErrorResume(e -> {
-                                        log.error("certificado não encontrado");
-                                        return Mono.error(new FileNotFoundException("Certificado não encontrado"));
-                            }).subscribeOn(Schedulers.parallel());
-                            
-                        }).onErrorResume(e -> {
-                            log.error("Erro reative", e);
-                            return Mono.error( new RuntimeException("Erro reativo"));
+                        return Flux.fromIterable(sheet)
+                                .flatMap(row -> {
+                                    Map<String, Object> params = new HashMap<>();
+                                    params.put("name", row.getCell(0).toString());
+                                    params.put("workload", row.getCell(1).toString());
+                                    params.put("course", row.getCell(2).toString());
+
+                                    return Mono.fromCallable(() -> {
+                                                String folderDirectory = createDirectory(row.getCell(0).toString());
+                                                JasperReport report = JasperCompileManager.compileReport(getAbsolutePath());
+                                                LOGGER.info("Report compilado para {}", row.getCell(0));
+                                                JasperPrint print = JasperFillManager.fillReport(report, params, new JREmptyDataSource());
+                                                LOGGER.info("Jasper print para {}", row.getCell(0));
+                                                JasperExportManager.exportReportToPdfFile(print, folderDirectory);
+                                                return "Arquivo exportado para " + row.getCell(0);
+                                            })
+                                            .onErrorResume(e -> {
+                                                log.error("Erro ao gerar certificado para {}", row.getCell(0), e);
+                                                return Mono.just("Erro ao gerar certificado para " + row.getCell(0));
+                                            })
+                                            .subscribeOn(Schedulers.parallel());
                                 });
                     } catch (IOException e) {
-                        return Mono.error(e);
+                        return Flux.error(e);
                     }
                 })
                 .onErrorResume(e -> {
@@ -89,10 +82,20 @@ public class CertificateService {
         if (!dir.exists()) {
             dir.mkdirs();
         }
-        return dir.getAbsolutePath() + File.separator + fileName.concat(".pdf");
+        return dir.getPath() + File.separator + fileName.concat(".pdf");
     }
 
-    private String getAbsolutePath() throws FileNotFoundException {
-        return ResourceUtils.getFile(CERTIFICATES + JRXMLFILE).getAbsolutePath();
+    private String getAbsolutePath() throws IOException {
+        Resource resource = resourceLoader.getResource(CERTIFICATES + JRXMLFILE);
+        InputStream inputStream = resource.getInputStream();
+
+        File tempFile = File.createTempFile("certificate", ".jrxml");
+        tempFile.deleteOnExit();
+
+        try (FileOutputStream outputStream = new FileOutputStream(tempFile)) {
+            IOUtils.copy(inputStream, outputStream);
+        }
+
+        return tempFile.getAbsolutePath();
     }
 }
