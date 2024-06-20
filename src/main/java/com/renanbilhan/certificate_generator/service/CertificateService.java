@@ -30,7 +30,7 @@ public class CertificateService {
     private final ResourceLoader resourceLoader;
     public static final String CERTIFICATES = "classpath:templates/";
     public static final String JRXMLFILE = "certificate.jrxml";
-    public static final String DOWNLOADDIRECTORY = "downloaded_certificates/";
+    public static final String DOWNLOADDIRECTORY = "/certificate-generator/data";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CertificateService.class);
 
