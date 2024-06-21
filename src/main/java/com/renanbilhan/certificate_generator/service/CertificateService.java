@@ -7,13 +7,10 @@ import org.apache.commons.compress.utils.IOUtils;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
-import org.springframework.util.ResourceUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -31,8 +28,6 @@ public class CertificateService {
     public static final String CERTIFICATES = "classpath:templates/";
     public static final String JRXMLFILE = "certificate.jrxml";
     public static final String DOWNLOADDIRECTORY = "/certificate-generator/data";
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(CertificateService.class);
 
     public Flux<String> generateCertificate(FilePart file) {
         return file.content()
@@ -52,9 +47,9 @@ public class CertificateService {
                                     return Mono.fromCallable(() -> {
                                                 String folderDirectory = createDirectory(row.getCell(0).toString());
                                                 JasperReport report = JasperCompileManager.compileReport(getAbsolutePath());
-                                                LOGGER.info("Report compilado para {}", row.getCell(0));
+                                                log.info("Report compilado para {}", row.getCell(0));
                                                 JasperPrint print = JasperFillManager.fillReport(report, params, new JREmptyDataSource());
-                                                LOGGER.info("Jasper print para {}", row.getCell(0));
+                                                log.info("Jasper print para {}", row.getCell(0));
                                                 JasperExportManager.exportReportToPdfFile(print, folderDirectory);
                                                 return "Arquivo exportado para " + row.getCell(0);
                                             })
